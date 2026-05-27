@@ -298,6 +298,74 @@ def validate_token():
         })
 
 
+@app.route("/api/create-checkout", methods=["POST"])
+def create_checkout():
+    """Create a Stripe checkout session for Studio or Pro plan."""
+    try:
+        import stripe
+        stripe.api_key = os.environ.get("STRIPE_SECRET_KEY")
+
+        data = request.get_json()
+        plan = data.get("plan", "studio")
+        email = data.get("email", "")
+        success_url = data.get("success_url", "https://louvrlabs.com/account?checkout=success")
+        cancel_url = data.get("cancel_url", "https://louvrlabs.com/onboarding.html")
+
+        price_id = os.environ.get("STRIPE_STUDIO_PRICE") if plan == "studio" else os.environ.get("STRIPE_PRO_PRICE")
+
+        session_params = {
+            "mode": "subscription",
+            "line_items": [{"price": price_id, "quantity": 1}],
+            "success_url": success_url,
+            "cancel_url": cancel_url,
+            "allow_promotion_codes": True,
+        }
+        if email:
+            session_params["customer_email"] = email
+
+        session = stripe.checkout.Session.create(**session_params)
+        return jsonify({"ok": True, "url": session.url})
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/webhook", methods=["POST"])
+def stripe_webhook():
+    """Handle Stripe webhook events."""
+    try:
+        import stripe
+        stripe.api_key = os.environ.get("STRIPE_SECRET_KEY")
+        webhook_secret = os.environ.get("STRIPE_WEBHOOK_SECRET", "")
+
+        payload = request.get_data()
+        sig_header = request.headers.get("Stripe-Signature", "")
+
+        if webhook_secret:
+            try:
+                event = stripe.Webhook.construct_event(payload, sig_header, webhook_secret)
+            except Exception:
+                return jsonify({"error": "Invalid signature"}), 400
+        else:
+            event = stripe.Event.construct_from(json.loads(payload), stripe.api_key)
+
+        if event["type"] == "checkout.session.completed":
+            session = event["data"]["object"]
+            customer_email = session.get("customer_email") or session.get("customer_details", {}).get("email")
+            plan = "studio"
+            # Try to detect plan from amount
+            amount = session.get("amount_total", 9900)
+            if amount >= 29900:
+                plan = "pro"
+            print(f"New subscriber: {customer_email} — {plan}")
+            # Here you would update Supabase user metadata if needed
+
+        return jsonify({"ok": True})
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port, debug=False)
