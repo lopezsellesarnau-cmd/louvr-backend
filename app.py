@@ -1,5 +1,6 @@
 import os
 import json
+import stripe
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 import requests
@@ -10,6 +11,7 @@ app = Flask(__name__)
 CORS(app, origins=["https://louvrlabs.com", "http://localhost:*"])
 
 anthropic = Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
+stripe.api_key = os.environ.get("STRIPE_SECRET_KEY")
 
 META_API_VERSION = "v21.0"
 META_BASE = f"https://graph.facebook.com/{META_API_VERSION}"
@@ -302,9 +304,6 @@ def validate_token():
 def create_checkout():
     """Create a Stripe checkout session for Studio or Pro plan."""
     try:
-        import stripe
-        stripe.api_key = os.environ.get("STRIPE_SECRET_KEY")
-
         data = request.get_json()
         plan = data.get("plan", "studio")
         email = data.get("email", "")
@@ -334,8 +333,6 @@ def create_checkout():
 def stripe_webhook():
     """Handle Stripe webhook events."""
     try:
-        import stripe
-        stripe.api_key = os.environ.get("STRIPE_SECRET_KEY")
         webhook_secret = os.environ.get("STRIPE_WEBHOOK_SECRET", "")
 
         payload = request.get_data()
